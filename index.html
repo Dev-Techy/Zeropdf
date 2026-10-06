@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart PDF Tools for Students</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <!-- SortableJS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+    
+    <!-- jsPDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: { primary: '#4f46e5' },
+                    fontFamily: { sans: ['Inter', 'sans-serif'] }
+                }
+            }
+        }
+        // Initialize PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            background-color: #f8fafc;
+            background-image: radial-gradient(circle at 100% 100%, #e0e7ff 0, transparent 50%), 
+                              radial-gradient(circle at 0% 0%, #fce7f3 0, transparent 50%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sortable-ghost {
+            opacity: 0.4;
+            transform: scale(0.95);
+            border: 2px dashed #4f46e5;
+            background-color: #e0e7ff;
+            border-radius: 1rem;
+        }
+        
+        .sortable-drag {
+            cursor: grabbing !important;
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+        }
+
+        .img-card { transition: box-shadow 0.2s ease; cursor: grab; }
+        .img-card:active { cursor: grabbing; }
+        #loadingOverlay { backdrop-filter: blur(4px); }
+        .modal-overlay { backdrop-filter: blur(4px); }
+        
+        /* Toast Notifications */
+        #toastContainer {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body class="text-slate-800 antialiased font-sans flex-grow">
+
+    <!-- Toast Notifications Container -->
+    <div id="toastContainer"></div>
+
+    <main class="flex-grow p-4 md:p-8">
+        <div class="max-w-6xl mx-auto flex flex-col gap-8">
+            
+            <header class="text-center mt-2 md:mt-6 relative">
+                <h1 class="text-3xl md:text-5xl font-bold tracking-tight text-slate-900 mb-4 flex justify-center items-center gap-3">
+                    <i class="ph ph-student text-indigo-600"></i> Smart PDF Tools
+                </h1>
+                
+                <!-- Tabs -->
+                <div class="inline-flex bg-slate-200/50 backdrop-blur-sm p-1.5 rounded-2xl shadow-sm mt-2">
+                    <button id="tabBtnImageToPdf" class="px-5 md:px-8 py-2.5 rounded-xl font-semibold text-sm md:text-base transition-all duration-300 bg-white text-indigo-700 shadow-sm flex items-center gap-2">
+                        <i class="ph ph-images text-lg"></i> Image to PDF
+                    </button>
+                    <button id="tabBtnCompressPdf" class="px-5 md:px-8 py-2.5 rounded-xl font-semibold text-sm md:text-base transition-all duration-300 text-slate-500 hover:text-slate-700 flex items-center gap-2">
+                        <i class="ph ph-file-zip text-lg"></i> Compress PDF
+                    </button>
+                </div>
+            </header>
+
+            <!-- ========================================== -->
+            <!-- TAB 1: IMAGE TO PDF                        -->
+            <!-- ========================================== -->
+            <div id="viewImageToPdf" class="flex flex-col gap-6">
+                <!-- Upload Zone -->
+                <div id="uploadZoneImg" class="relative group border-2 border-dashed border-slate-300 rounded-3xl bg-white/60 backdrop-blur-md p-8 md:p-12 text-center hover:bg-white hover:border-indigo-400 hover:shadow-lg transition-all duration-300 cursor-pointer overflow-hidden">
+                    <input type="file" id="fileInputImg" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" multiple accept="image/*">
+                    <div class="space-y-4 pointer-events-none relative z-0">
+                        <div class="mx-auto w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center group-hover:bg-indigo-100 group-hover:scale-110 transition-transform duration-300">
+                            <i class="ph ph-camera text-3xl text-indigo-500"></i>
+                        </div>
+                        <div>
+                            <p class="text-xl font-semibold text-slate-700 group-hover:text-indigo-600 transition-colors">Tap to Camera or Drop Images</p>
+                            <p class="text-sm text-slate-500 mt-2 font-medium">Auto scales to A4 perfectly. Supports JPG, PNG, WEBP.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dashboard / Preview Area -->
+                <div id="dashboardImg" class="hidden flex flex-col gap-6">
+                    <!-- Controls & Settings Bar -->
+                    <div class="bg-white shadow-lg shadow-slate-200/50 rounded-2xl p-5 border border-slate-100 flex flex-col lg:flex-row items-center justify-between gap-4">
+                        <div class="flex items-center gap-3 w-full lg:w-auto">
+                            <div class="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+                                <i class="ph ph-stack text-xl"></i>
+                            </div>
+                            <div>
+                                <h2 class="text-lg font-bold text-slate-800 leading-tight">Image Roster</h2>
+                                <p class="text-slate-500 text-xs font-medium" id="imgCountLabel">0 images</p>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
+                            <div class="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 w-full sm:w-auto">
+                                <i class="ph ph-target text-slate-400 text-lg"></i>
+                                <label for="imgTargetSize" class="text-sm font-semibold text-slate-600 whitespace-nowrap">Target Size:</label>
+                                <select id="imgTargetSize" class="bg-transparent text-sm font-bold text-indigo-600 focus:outline-none cursor-pointer">
+                                    <option value="0">Best Quality (No Bypass)</option>
+                                    <option value="2097152">< 2 MB</option>
+                                    <option value="1048576">< 1 MB</option>
+                                    <option value="524288">< 500 KB</option>
+                                    <option value="204800">< 200 KB</option>
+                                </select>
+                            </div>
+                            <div class="flex gap-2 w-full sm:w-auto">
+                                <button id="clearImgBtn" class="flex-1 sm:flex-none px-4 py-2.5 rounded-xl text-slate-600 bg-slate-100 hover:bg-slate-200 font-semibold transition-colors flex items-center justify-center gap-2">
+                                    Clear
+                                </button>
+                                <button id="convertImgBtn" class="flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-white bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 font-bold transition-all transform active:scale-95 flex items-center justify-center gap-2 whitespace-nowrap">
+                                    <i class="ph ph-file-pdf text-lg"></i> Build PDF
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sortable Grid Area -->
+                    <div class="bg-white shadow-lg shadow-slate-200/50 rounded-3xl p-6 border border-slate-100">
+                        <p class="text-slate-500 text-sm mb-6 flex items-center gap-2 font-medium bg-indigo-50 p-3 rounded-xl border border-indigo-100">
+                            <i class="ph ph-info text-indigo-500 text-lg"></i> 
+                            Press and drag thumbnails to reorder pages. The cover image determines the filename.
+                        </p>
+                        <div id="imgGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-5"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========================================== -->
+            <!-- TAB 2: COMPRESS PDF                        -->
+            <!-- ========================================== -->
+            <div id="viewCompressPdf" class="hidden flex flex-col gap-6">
+                <!-- Upload Zone -->
+                <div id="uploadZonePdf" class="relative group border-2 border-dashed border-slate-300 rounded-3xl bg-white/60 backdrop-blur-md p-8 md:p-12 text-center hover:bg-white hover:border-emerald-400 hover:shadow-lg transition-all duration-300 cursor-pointer overflow-hidden">
+                    <input type="file" id="fileInputPdf" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" accept="application/pdf">
+                    <div class="space-y-4 pointer-events-none relative z-0">
+                        <div class="mx-auto w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center group-hover:bg-emerald-100 group-hover:scale-110 transition-transform duration-300">
+                            <i class="ph ph-file-pdf text-3xl text-emerald-500"></i>
+                        </div>
+                        <div>
+                            <p class="text-xl font-semibold text-slate-700 group-hover:text-emerald-600 transition-colors">Select a PDF File</p>
+                            <p class="text-sm text-slate-500 mt-2 font-medium">Compress existing PDFs entirely offline</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PDF Compression Dashboard -->
+                <div id="dashboardPdf" class="hidden bg-white shadow-lg shadow-slate-200/50 rounded-2xl p-6 border border-slate-100 flex flex-col md:flex-row items-center justify-between gap-6">
+                    
+                    <div class="flex items-center gap-4 w-full md:w-auto">
+                        <div class="w-12 h-12 bg-red-100 text-red-500 rounded-xl flex items-center justify-center text-2xl shadow-sm">
+                            <i class="ph ph-file-pdf"></i>
+                        </div>
+                        <div class="overflow-hidden">
+                            <h3 id="pdfFilename" class="text-lg font-bold text-slate-800 truncate">document.pdf</h3>
+                            <p id="pdfOriginalSize" class="text-sm text-slate-500 font-medium">Size: 0 MB</p>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
+                        <div class="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 w-full sm:w-auto">
+                            <i class="ph ph-gauge text-slate-400 text-lg"></i>
+                            <label for="pdfCompressLevel" class="text-sm font-semibold text-slate-600 whitespace-nowrap">Level:</label>
+                            <select id="pdfCompressLevel" class="bg-transparent text-sm font-bold text-emerald-600 focus:outline-none cursor-pointer">
+                                <option value="high">High Quality (Less Shrink)</option>
+                                <option value="medium" selected>Medium (Recommended)</option>
+                                <option value="extreme">Extreme (Smallest File)</option>
+                            </select>
+                        </div>
+                        <div class="flex gap-2 w-full sm:w-auto">
+                            <button id="clearPdfBtn" class="flex-1 sm:flex-none px-4 py-2.5 rounded-xl text-slate-600 bg-slate-100 hover:bg-slate-200 font-semibold transition-colors flex items-center justify-center">
+                                Cancel
+                            </button>
+                            <button id="compressPdfBtn" class="flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-white bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-200 font-bold transition-all transform active:scale-95 flex items-center justify-center gap-2 whitespace-nowrap">
+                                <i class="ph ph-arrows-in-simple text-lg"></i> Compress
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="mt-auto py-8 text-center border-t border-slate-200 bg-slate-50/50 backdrop-blur">
+        <p class="text-slate-800 font-bold mb-3 flex justify-center items-center gap-2">
+            Made for students <i class="ph-fill ph-heart text-red-500"></i>
+        </p>
+        <p class="text-slate-500 text-sm font-medium mb-4 flex justify-center items-center gap-2">
+            <i class="ph ph-shield-check text-green-600 text-lg"></i> 100% Private & Offline
+        </p>
+        <div class="flex justify-center gap-6 text-sm">
+            <button onclick="openModal('howToModal')" class="text-indigo-600 hover:text-indigo-800 font-semibold underline decoration-indigo-200 underline-offset-4 transition-colors">How to Use</button>
+            <button onclick="openModal('privacyModal')" class="text-indigo-600 hover:text-indigo-800 font-semibold underline decoration-indigo-200 underline-offset-4 transition-colors">Privacy & Terms</button>
+        </div>
+    </footer>
+
+    <!-- Modals -->
+    <div id="howToModal" class="modal-overlay fixed inset-0 bg-slate-900/60 z-[100] hidden items-center justify-center p-4 opacity-0 transition-opacity duration-300">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden transform scale-95 transition-transform duration-300">
+            <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-indigo-50/50">
+                <h3 class="text-xl font-bold text-slate-800 flex items-center gap-2"><i class="ph ph-book-open text-indigo-600"></i> How to Use</h3>
+                <button onclick="closeModal('howToModal')" class="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"><i class="ph ph-x text-lg font-bold"></i></button>
+            </div>
+            <div class="p-6 space-y-5 text-slate-600">
+                <div class="flex gap-4">
+                    <div class="mt-1 bg-indigo-100 text-indigo-600 w-8 h-8 flex items-center justify-center rounded-full shrink-0 font-bold">1</div>
+                    <div>
+                        <strong class="text-slate-800 block mb-1">Direct Mobile Upload</strong>
+                        Tap the upload zone on your phone. You can choose files from your gallery or tap "Camera" to take pictures of your assignments instantly.
+                    </div>
+                </div>
+                <div class="flex gap-4">
+                    <div class="mt-1 bg-indigo-100 text-indigo-600 w-8 h-8 flex items-center justify-center rounded-full shrink-0 font-bold">2</div>
+                    <div>
+                        <strong class="text-slate-800 block mb-1">Touch & Drag Reordering</strong>
+                        Need to change the page order? Just press and hold an image, then drag it to where it belongs. The page number updates automatically.
+                    </div>
+                </div>
+                <div class="flex gap-4">
+                    <div class="mt-1 bg-indigo-100 text-indigo-600 w-8 h-8 flex items-center justify-center rounded-full shrink-0 font-bold">3</div>
+                    <div>
+                        <strong class="text-slate-800 block mb-1">Smart Compression Bypass</strong>
+                        Select a target PDF size. If your images are already highly optimized and smaller than the limit, the tool is smart enough to bypass compression, preserving 100% of the original quality!
+                    </div>
+                </div>
+            </div>
+            <div class="p-4 bg-slate-50 border-t border-slate-100 text-center">
+                <button onclick="closeModal('howToModal')" class="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl w-full sm:w-auto transition-colors">Got it!</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="privacyModal" class="modal-overlay fixed inset-0 bg-slate-900/60 z-[100] hidden items-center justify-center p-4 opacity-0 transition-opacity duration-300">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden transform scale-95 transition-transform duration-300">
+            <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-emerald-50/50">
+                <h3 class="text-xl font-bold text-slate-800 flex items-center gap-2"><i class="ph ph-shield-check text-emerald-600"></i> Privacy & Terms</h3>
+                <button onclick="closeModal('privacyModal')" class="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"><i class="ph ph-x text-lg font-bold"></i></button>
+            </div>
+            <div class="p-6 space-y-4 text-slate-600">
+                <div class="bg-green-50 border border-green-200 p-4 rounded-xl">
+                    <h4 class="font-bold text-green-800 flex items-center gap-2 mb-2"><i class="ph-fill ph-lock-key"></i> Zero Upload Guarantee</h4>
+                    <p class="text-sm text-green-700">Your files <strong>never leave your device</strong>. All image processing, compression, and PDF generation happen strictly locally in your browser memory. We do not have servers, databases, or access to your documents.</p>
+                </div>
+                <h4 class="font-bold text-slate-800 mt-4">Offline Capable</h4>
+                <p class="text-sm leading-relaxed">Once this page has loaded, you can disconnect from the internet and the tool will still function perfectly. It is entirely self-contained.</p>
+                
+                <h4 class="font-bold text-slate-800 mt-4">Terms of Use</h4>
+                <p class="text-sm leading-relaxed">This tool is provided "as is" and free of charge for students and educators. Users are responsible for verifying the quality and formatting of generated PDFs prior to official submissions.</p>
+            </div>
+            <div class="p-4 bg-slate-50 border-t border-slate-100 text-center">
+                <button onclick="closeModal('privacyModal')" class="px-6 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl w-full sm:w-auto transition-colors">I Understand</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Processing Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-slate-900/40 z-[200] hidden flex-col items-center justify-center">
+        <div class="bg-white p-8 rounded-3xl shadow-2xl flex flex-col items-center max-w-sm w-full mx-4 text-center">
+            <div class="relative w-16 h-16 mb-6">
+                <div class="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
+                <div id="spinnerCircle" class="absolute inset-0 border-4 border-indigo-600 rounded-full border-t-transparent animate-spin"></div>
+                <i id="spinnerIcon" class="ph ph-spinner-gap absolute inset-0 flex items-center justify-center text-2xl text-indigo-600"></i>
+            </div>
+            <h3 id="loadingTitle" class="text-xl font-bold text-slate-800 mb-2">Processing...</h3>
+            <p id="loadingStatus" class="text-slate-500 text-sm font-medium">Please wait</p>
+            
+            <div class="w-full bg-slate-100 rounded-full h-2.5 mt-6 overflow-hidden">
+                <div id="progressBar" class="bg-indigo-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Modal Handlers
+        window.openModal = function(id) {
+            const modal = document.getElementById(id);
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            // Slight delay to allow display:flex to apply before transition
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                modal.querySelector('div').classList.remove('scale-95');
+                modal.querySelector('div').classList.add('scale-100');
+            }, 10);
+        }
+
+        window.closeModal = function(id) {
+            const modal = document.getElementById(id);
+            modal.classList.add('opacity-0');
+            modal.querySelector('div').classList.remove('scale-100');
+            modal.querySelector('div').classList.add('scale-95');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 300); // Matches transition duration
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // --- UI HELPERS ---
+            function showToast(message, isError = false) {
+                const toast = document.createElement('div');
+                toast.className = `px-4 py-3 rounded-xl shadow-lg text-sm font-semibold flex items-center gap-2 transform transition-all duration-300 translate-x-full opacity-0 ${isError ? 'bg-red-600 text-white' : 'bg-slate-800 text-white'}`;
+                toast.innerHTML = `<i class="ph ${isError ? 'ph-warning-circle' : 'ph-check-circle'} text-lg"></i> ${message}`;
+                
+                document.getElementById('toastContainer').appendChild(toast);
+                
+                setTimeout(() => { toast.classList.remove('translate-x-full', 'opacity-0'); }, 10);
+                setTimeout(() => {
+                    toast.classList.add('translate-x-full', 'opacity-0');
+                    setTimeout(() => toast.remove(), 300);
+                }, 4000);
+            }
+
+            function formatBytes(bytes, decimals = 2) {
+                if (!+bytes) return '0 Bytes';
+                const k = 1024;
+                const dm = decimals < 0 ? 0 : decimals;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+            }
+
+            // --- TAB SWITCHING ---
+            const tabBtnImageToPdf = document.getElementById('tabBtnImageToPdf');
+            const tabBtnCompressPdf = document.getElementById('tabBtnCompressPdf');
+            const viewImageToPdf = document.getElementById('viewImageToPdf');
+            const viewCompressPdf = document.getElementById('viewCompressPdf');
+
+            function switchTab(tabName) {
+                if (tabName === 'image') {
+                    viewImageToPdf.classList.remove('hidden');
+                    viewCompressPdf.classList.add('hidden');
+                    
+                    tabBtnImageToPdf.className = "px-5 md:px-8 py-2.5 rounded-xl font-semibold text-sm md:text-base transition-all duration-300 bg-white text-indigo-700 shadow-sm flex items-center gap-2";
+                    tabBtnCompressPdf.className = "px-5 md:px-8 py-2.5 rounded-xl font-semibold text-sm md:text-base transition-all duration-300 text-slate-500 hover:text-slate-700 flex items-center gap-2";
+                } else {
+                    viewCompressPdf.classList.remove('hidden');
+                    viewImageToPdf.classList.add('hidden');
+                    
+                    tabBtnCompressPdf.className = "px-5 md:px-8 py-2.5 rounded-xl font-semibold text-sm md:text-base transition-all duration-300 bg-white text-emerald-700 shadow-sm flex items-center gap-2";
+                    tabBtnImageToPdf.className = "px-5 md:px-8 py-2.5 rounded-xl font-semibold text-sm md:text-base transition-all duration-300 text-slate-500 hover:text-slate-700 flex items-center gap-2";
+                }
+            }
+
+            tabBtnImageToPdf.addEventListener('click', () => switchTab('image'));
+            tabBtnCompressPdf.addEventListener('click', () => switchTab('compress'));
+
+            // --- IMAGE TO PDF LOGIC ---
+            const fileInputImg = document.getElementById('fileInputImg');
+            const uploadZoneImg = document.getElementById('uploadZoneImg');
+            const dashboardImg = document.getElementById('dashboardImg');
+            const imgGrid = document.getElementById('imgGrid');
+            const clearImgBtn = document.getElementById('clearImgBtn');
+            const convertImgBtn = document.getElementById('convertImgBtn');
+            const imgCountLabel = document.getElementById('imgCountLabel');
+            const imgTargetSize = document.getElementById('imgTargetSize');
+            
+            let imageFiles = new Map();
+            let sortableInstance = new Sortable(imgGrid, {
+                animation: 250, 
+                ghostClass: 'sortable-ghost', 
+                dragClass: 'sortable-drag',
+                delay: 150, // Small delay allows scrolling on mobile without immediately dragging
+                delayOnTouchOnly: true,
+                onEnd: () => updateImgPageNumbers()
+            });
+
+            // Drag/Drop visual feedback
+            ['dragenter', 'dragover'].forEach(evt => {
+                uploadZoneImg.addEventListener(evt, (e) => { e.preventDefault(); uploadZoneImg.classList.add('border-indigo-400', 'bg-indigo-50/80', 'scale-[1.02]'); });
+            });
+            ['dragleave', 'drop'].forEach(evt => {
+                uploadZoneImg.addEventListener(evt, (e) => { e.preventDefault(); uploadZoneImg.classList.remove('border-indigo-400', 'bg-indigo-50/80', 'scale-[1.02]'); });
+            });
+            uploadZoneImg.addEventListener('drop', (e) => {
+                const files = Array.from(e.dataTransfer.files);
+                processImgFiles(files);
+            });
+            fileInputImg.addEventListener('change', (e) => {
+                processImgFiles(Array.from(e.target.files));
+                fileInputImg.value = ''; 
+            });
+
+            function processImgFiles(files) {
+                let added = 0;
+                files.forEach(file => {
+                    if (!file.type.startsWith('image/')) return;
+                    const id = 'img_' + Math.random().toString(36).substr(2, 9);
+                    const objectUrl = URL.createObjectURL(file);
+                    imageFiles.set(id, { file, url: objectUrl, name: file.name });
+                    renderImgThumbnail(id, objectUrl, file.name);
+                    added++;
+                });
+                if (added > 0) updateImgDashboard();
+            }
+
+            function renderImgThumbnail(id, url, filename) {
+                const col = document.createElement('div');
+                col.className = 'img-card relative group rounded-2xl overflow-hidden shadow-sm border border-slate-200 bg-white flex flex-col select-none touch-manipulation';
+                col.dataset.id = id;
+                // Solid header bar for page numbers
+                col.innerHTML = `
+                    <div class="page-badge-container flex items-center justify-center py-2 text-[11px] uppercase tracking-wider font-bold text-white bg-slate-700 transition-colors duration-300 pointer-events-none">
+                        <span class="page-badge">#</span>
+                    </div>
+                    <div class="flex-1 p-2 flex items-center justify-center overflow-hidden relative bg-slate-50 min-h-[120px]">
+                        <img src="${url}" alt="${filename}" class="max-w-full max-h-full object-contain pointer-events-none z-10 rounded">
+                    </div>
+                    <div class="p-2.5 bg-white border-t border-slate-100 flex items-center justify-between gap-2">
+                        <span class="text-xs text-slate-600 truncate font-semibold flex-1 pointer-events-none">${filename}</span>
+                        <button class="delete-btn text-slate-400 hover:text-red-500 transition-colors p-1.5 rounded-lg hover:bg-red-50 active:bg-red-100 touch-manipulation">
+                            <i class="ph ph-trash font-bold pointer-events-none"></i>
+                        </button>
+                    </div>
+                `;
+                col.querySelector('.delete-btn').addEventListener('click', (e) => { e.stopPropagation(); removeImage(id, col); });
+                imgGrid.appendChild(col);
+            }
+
+            function removeImage(id, element) {
+                const data = imageFiles.get(id);
+                if (data) { URL.revokeObjectURL(data.url); imageFiles.delete(id); }
+                element.remove();
+                updateImgDashboard();
+            }
+
+            function updateImgPageNumbers() {
+                const cards = imgGrid.querySelectorAll('.img-card');
+                cards.forEach((card, index) => {
+                    const container = card.querySelector('.page-badge-container');
+                    const badge = card.querySelector('.page-badge');
+                    if (badge && container) {
+                        badge.textContent = index === 0 ? 'Page 1 (Cover)' : `Page ${index + 1}`;
+                        // Highlight cover
+                        if (index === 0) {
+                            container.classList.remove('bg-slate-700');
+                            container.classList.add('bg-indigo-600');
+                        } else {
+                            container.classList.remove('bg-indigo-600');
+                            container.classList.add('bg-slate-700');
+                        }
+                    }
+                });
+            }
+
+            function updateImgDashboard() {
+                imgCountLabel.textContent = `${imageFiles.size} image${imageFiles.size !== 1 ? 's' : ''}`;
+                dashboardImg.classList.toggle('hidden', imageFiles.size === 0);
+                updateImgPageNumbers();
+            }
+
+            clearImgBtn.addEventListener('click', () => {
+                imageFiles.forEach(data => URL.revokeObjectURL(data.url));
+                imageFiles.clear(); imgGrid.innerHTML = ''; updateImgDashboard();
+            });
+
+            async function compressImageToBudget(imgUrl, targetBytes, originalSizeBytes) {
+                return new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        // Smart Bypass Check
+                        if (!targetBytes || targetBytes === 0 || originalSizeBytes <= targetBytes) {
+                            return resolve({ data: imgUrl, width: img.width, height: img.height, isCompressed: false });
+                        }
+                        
+                        let width = img.width, height = img.height, quality = 0.95, scale = 1.0, dataUrl = '', iters = 0;
+                        const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
+
+                        while (iters < 15) {
+                            canvas.width = Math.floor(width * scale);
+                            canvas.height = Math.floor(height * scale);
+                            ctx.fillStyle = '#FFFFFF'; 
+                            ctx.fillRect(0, 0, canvas.width, canvas.height);
+                            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                            dataUrl = canvas.toDataURL('image/jpeg', quality);
+                            
+                            let estBytes = (dataUrl.length * 0.75) - (dataUrl.endsWith('==') ? 2 : dataUrl.endsWith('=') ? 1 : 0);
+                            if (estBytes <= targetBytes) break;
+                            
+                            quality > 0.4 ? quality -= 0.15 : (scale *= 0.85, quality = 0.7);
+                            iters++;
+                        }
+                        resolve({ data: dataUrl, width: canvas.width, height: canvas.height, isCompressed: true });
+                    };
+                    img.onerror = reject; img.src = imgUrl;
+                });
+            }
+
+            convertImgBtn.addEventListener('click', async () => {
+                const elements = Array.from(imgGrid.children);
+                if (!elements.length) return;
+
+                const firstData = imageFiles.get(elements[0].dataset.id);
+                // Use cover image name for the PDF
+                const pdfName = `${firstData.name.replace(/\.[^/.]+$/, "")}${elements.length > 1 ? '_docs' : ''}.pdf`;
+                const tgtBytes = parseInt(imgTargetSize.value, 10);
+                const bytesPerImg = tgtBytes > 0 ? Math.floor(tgtBytes / elements.length) : 0;
+
+                showLoading('Generating PDF', 'indigo');
+                try {
+                    const { jsPDF } = window.jspdf; 
+                    let doc = null;
+                    
+                    for (let i = 0; i < elements.length; i++) {
+                        updateLoadingStatus(`Processing Page ${i + 1} of ${elements.length}...`, ((i / elements.length) * 100));
+                        const imgData = imageFiles.get(elements[i].dataset.id);
+                        const processed = await compressImageToBudget(imgData.url, bytesPerImg, imgData.file.size);
+                        
+                        // Determine A4 layout orientation
+                        const orient = processed.width > processed.height ? "l" : "p";
+                        
+                        if (i === 0) {
+                            doc = new jsPDF({ orientation: orient, unit: "pt", format: "a4" });
+                        } else {
+                            doc.addPage("a4", orient);
+                        }
+                        
+                        // Standard A4 dimensions in points
+                        const a4WidthPt = doc.internal.pageSize.getWidth(); // e.g. 595.28 portrait
+                        const a4HeightPt = doc.internal.pageSize.getHeight(); // e.g. 841.89 portrait
+                        
+                        const imgRatio = processed.width / processed.height;
+                        const pageRatio = a4WidthPt / a4HeightPt;
+                        
+                        let finalWidth, finalHeight;
+                        
+                        // Scale to fit without stretching
+                        if (imgRatio > pageRatio) {
+                            finalWidth = a4WidthPt;
+                            finalHeight = a4WidthPt / imgRatio;
+                        } else {
+                            finalHeight = a4HeightPt;
+                            finalWidth = a4HeightPt * imgRatio;
+                        }
+                        
+                        // Center image
+                        const xOffset = (a4WidthPt - finalWidth) / 2;
+                        const yOffset = (a4HeightPt - finalHeight) / 2;
+                        
+                        doc.addImage(processed.data, processed.isCompressed ? 'JPEG' : undefined, xOffset, yOffset, finalWidth, finalHeight, undefined, 'FAST');
+                    }
+                    updateLoadingStatus("Finalizing Document...", 100);
+                    await new Promise(r => setTimeout(r, 400)); // Brief pause for UX
+                    doc.save(pdfName);
+                    showToast('PDF Created Successfully!');
+                } catch (err) {
+                    console.error(err);
+                    showToast('Error generating PDF.', true);
+                } finally { 
+                    hideLoading(); 
+                }
+            });
+
+
+            // --- COMPRESS PDF LOGIC ---
+            const fileInputPdf = document.getElementById('fileInputPdf');
+            const uploadZonePdf = document.getElementById('uploadZonePdf');
+            const dashboardPdf = document.getElementById('dashboardPdf');
+            const pdfFilename = document.getElementById('pdfFilename');
+            const pdfOriginalSize = document.getElementById('pdfOriginalSize');
+            const clearPdfBtn = document.getElementById('clearPdfBtn');
+            const compressPdfBtn = document.getElementById('compressPdfBtn');
+            const pdfCompressLevel = document.getElementById('pdfCompressLevel');
+
+            let currentPdfFile = null;
+
+            ['dragenter', 'dragover'].forEach(evt => {
+                uploadZonePdf.addEventListener(evt, (e) => { e.preventDefault(); uploadZonePdf.classList.add('border-emerald-400', 'bg-emerald-50/80', 'scale-[1.02]'); });
+            });
+            ['dragleave', 'drop'].forEach(evt => {
+                uploadZonePdf.addEventListener(evt, (e) => { e.preventDefault(); uploadZonePdf.classList.remove('border-emerald-400', 'bg-emerald-50/80', 'scale-[1.02]'); });
+            });
+            uploadZonePdf.addEventListener('drop', (e) => handlePdfSelect(e.dataTransfer.files[0]));
+            fileInputPdf.addEventListener('change', (e) => { handlePdfSelect(e.target.files[0]); fileInputPdf.value = ''; });
+
+            function handlePdfSelect(file) {
+                if (!file || file.type !== 'application/pdf') {
+                    showToast('Please select a valid PDF file.', true);
+                    return;
+                }
+                currentPdfFile = file;
+                pdfFilename.textContent = file.name;
+                pdfOriginalSize.textContent = `Size: ${formatBytes(file.size)}`;
+                dashboardPdf.classList.remove('hidden');
+                dashboardPdf.classList.add('flex');
+            }
+
+            clearPdfBtn.addEventListener('click', () => {
+                currentPdfFile = null;
+                dashboardPdf.classList.add('hidden');
+                dashboardPdf.classList.remove('flex');
+            });
+
+            compressPdfBtn.addEventListener('click', async () => {
+                if (!currentPdfFile) return;
+
+                showLoading('Compressing PDF', 'emerald');
+                try {
+                    const level = pdfCompressLevel.value;
+                    let renderScale = 1.5; let jpegQuality = 0.65;
+                    if (level === 'high') { renderScale = 2.0; jpegQuality = 0.85; }
+                    if (level === 'extreme') { renderScale = 1.0; jpegQuality = 0.40; }
+
+                    updateLoadingStatus('Reading document locally...', 5);
+                    const arrayBuffer = await currentPdfFile.arrayBuffer();
+                    const pdfDoc = await pdfjsLib.getDocument(arrayBuffer).promise;
+                    const numPages = pdfDoc.numPages;
+
+                    const { jsPDF } = window.jspdf;
+                    let newPdf = null;
+
+                    for (let i = 1; i <= numPages; i++) {
+                        updateLoadingStatus(`Flattening Page ${i} of ${numPages}...`, 10 + ((i / numPages) * 80));
+                        
+                        const page = await pdfDoc.getPage(i);
+                        const viewport = page.getViewport({ scale: renderScale });
+                        
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = viewport.width;
+                        canvas.height = viewport.height;
+
+                        await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+                        const imgData = canvas.toDataURL('image/jpeg', jpegQuality);
+                        const physicalViewport = page.getViewport({ scale: 1.0 });
+                        const orient = physicalViewport.width > physicalViewport.height ? "l" : "p";
+
+                        if (i === 1) {
+                            // Maintain exact physical dimensions of original PDF
+                            newPdf = new jsPDF({ orientation: orient, unit: "pt", format: [physicalViewport.width, physicalViewport.height] });
+                        } else {
+                            newPdf.addPage([physicalViewport.width, physicalViewport.height], orient);
+                        }
+                        
+                        newPdf.addImage(imgData, 'JPEG', 0, 0, physicalViewport.width, physicalViewport.height, undefined, 'FAST');
+                    }
+
+                    updateLoadingStatus('Packing PDF...', 95);
+                    await new Promise(r => setTimeout(r, 300));
+                    
+                    const outName = currentPdfFile.name.replace('.pdf', `_compressed.pdf`);
+                    newPdf.save(outName);
+                    showToast('PDF Compressed successfully!');
+                    
+                } catch (err) {
+                    console.error(err);
+                    showToast('Error processing PDF. It may be password protected.', true);
+                } finally {
+                    hideLoading();
+                }
+            });
+
+            // --- LOADING OVERLAY ---
+            const overlay = document.getElementById('loadingOverlay');
+            const pb = document.getElementById('progressBar');
+            const stat = document.getElementById('loadingStatus');
+            const title = document.getElementById('loadingTitle');
+            const spinC = document.getElementById('spinnerCircle');
+            const spinI = document.getElementById('spinnerIcon');
+
+            function showLoading(text, colorTheme) {
+                title.textContent = text;
+                pb.style.width = '0%';
+                
+                const themeMap = {
+                    'indigo': { border: 'border-indigo-600', bg: 'bg-indigo-600', text: 'text-indigo-600', icon: 'ph-file-pdf' },
+                    'emerald': { border: 'border-emerald-600', bg: 'bg-emerald-600', text: 'text-emerald-600', icon: 'ph-file-zip' }
+                };
+                
+                const t = themeMap[colorTheme];
+                spinC.className = `absolute inset-0 border-4 rounded-full border-t-transparent animate-spin ${t.border}`;
+                spinI.className = `ph ${t.icon} absolute inset-0 flex items-center justify-center text-2xl ${t.text}`;
+                pb.className = `h-2.5 rounded-full transition-all duration-300 ${t.bg}`;
+                
+                overlay.classList.remove('hidden');
+                overlay.classList.add('flex');
+            }
+
+            function updateLoadingStatus(text, percent) {
+                stat.textContent = text;
+                pb.style.width = `${percent}%`;
+            }
+
+            function hideLoading() {
+                overlay.classList.add('hidden');
+                overlay.classList.remove('flex');
+            }
+        });
+    </script>
+</body>
+</html>
